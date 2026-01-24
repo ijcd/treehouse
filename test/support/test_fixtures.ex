@@ -1,6 +1,6 @@
-defmodule Treehouse.TestHelpers do
+defmodule Treehouse.TestFixtures do
   @moduledoc """
-  Shared test utilities for Treehouse tests.
+  ExUnit setup fixtures for Treehouse tests.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]

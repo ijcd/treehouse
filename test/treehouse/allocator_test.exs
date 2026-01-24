@@ -3,7 +3,7 @@ defmodule Treehouse.AllocatorTest do
 
   import ExUnit.CaptureLog
   import Hammox
-  import Treehouse.TestHelpers
+  import Treehouse.TestFixtures
 
   alias Treehouse.Allocator
 

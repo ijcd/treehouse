@@ -6,7 +6,7 @@ defmodule Treehouse.Registry.SqliteTest do
   alias Treehouse.Registry
   alias Treehouse.Registry.Sqlite
 
-  import Treehouse.TestHelpers
+  import Treehouse.TestFixtures
 
   describe "start_link/0" do
     test "starts with default options (no args)" do

@@ -1,7 +1,7 @@
 defmodule TreehouseTest do
   use ExUnit.Case, async: false
 
-  import Treehouse.TestHelpers
+  import Treehouse.TestFixtures
 
   setup do
     setup_named_allocator(prefix: "treehouse_integration_test")

@@ -1,7 +1,7 @@
 defmodule Treehouse.RegistryTest do
   use ExUnit.Case, async: false
 
-  import Treehouse.TestHelpers
+  import Treehouse.TestFixtures
 
   alias Treehouse.Registry
 

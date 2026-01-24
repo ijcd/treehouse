@@ -3,7 +3,7 @@ defmodule Mix.Tasks.TreehouseTest do
 
   import ExUnit.CaptureIO
   import Hammox
-  import Treehouse.TestHelpers
+  import Treehouse.TestFixtures
 
   setup :verify_on_exit!
 
