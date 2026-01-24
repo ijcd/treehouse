@@ -4,7 +4,9 @@ defmodule Treehouse.AllocatorTest do
   alias Treehouse.Allocator
 
   setup do
-    db_path = "/tmp/treehouse_allocator_test_#{:rand.uniform(100_000)}.db"
+    db_path =
+      Path.join(System.tmp_dir!(), "treehouse_allocator_test_#{:rand.uniform(100_000)}.db")
+
     {:ok, pid} = Allocator.start_link(db_path: db_path, name: nil)
 
     on_exit(fn ->
@@ -83,14 +85,17 @@ defmodule Treehouse.AllocatorTest do
   describe "lazy reclamation" do
     test "reclaims stale IP when pool exhausted" do
       # Start with tiny pool (only 2 IPs)
-      db = "/tmp/treehouse_reclaim_test_#{:rand.uniform(100_000)}.db"
-      {:ok, pid} = Allocator.start_link(
-        db_path: db,
-        name: nil,
-        ip_range_start: 10,
-        ip_range_end: 11,
-        stale_threshold_days: 0  # Immediate staleness for testing
-      )
+      db = Path.join(System.tmp_dir!(), "treehouse_reclaim_test_#{:rand.uniform(100_000)}.db")
+
+      {:ok, pid} =
+        Allocator.start_link(
+          db_path: db,
+          name: nil,
+          ip_range_start: 10,
+          ip_range_end: 11,
+          # Immediate staleness for testing
+          stale_threshold_days: 0
+        )
 
       on_exit(fn ->
         if Process.alive?(pid), do: GenServer.stop(pid)
@@ -107,6 +112,33 @@ defmodule Treehouse.AllocatorTest do
       # Third allocation should reclaim stale one
       {:ok, ip3} = Allocator.get_or_allocate(pid, "branch3")
       assert ip3 =~ ~r/^127\.0\.0\.(10|11)$/
+    end
+
+    test "returns error when pool exhausted and no stale IPs" do
+      # Start with tiny pool (only 2 IPs) and long stale threshold
+      db = Path.join(System.tmp_dir!(), "treehouse_exhausted_test_#{:rand.uniform(100_000)}.db")
+
+      {:ok, pid} =
+        Allocator.start_link(
+          db_path: db,
+          name: nil,
+          ip_range_start: 10,
+          ip_range_end: 11,
+          # Nothing will be stale
+          stale_threshold_days: 365
+        )
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db)
+      end)
+
+      # Allocate both IPs
+      {:ok, _} = Allocator.get_or_allocate(pid, "branch1")
+      {:ok, _} = Allocator.get_or_allocate(pid, "branch2")
+
+      # Third allocation should fail - pool exhausted, nothing stale
+      assert {:error, :pool_exhausted} = Allocator.get_or_allocate(pid, "branch3")
     end
   end
 end

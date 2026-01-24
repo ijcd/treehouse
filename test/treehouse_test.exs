@@ -2,7 +2,9 @@ defmodule TreehouseTest do
   use ExUnit.Case, async: false
 
   setup do
-    db_path = "/tmp/treehouse_integration_test_#{:rand.uniform(100_000)}.db"
+    db_path =
+      Path.join(System.tmp_dir!(), "treehouse_integration_test_#{:rand.uniform(100_000)}.db")
+
     {:ok, pid} = Treehouse.Allocator.start_link(db_path: db_path, name: Treehouse.Allocator)
 
     on_exit(fn ->

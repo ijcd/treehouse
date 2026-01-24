@@ -4,7 +4,7 @@ defmodule Treehouse.RegistryTest do
   alias Treehouse.Registry
 
   setup do
-    db_path = "/tmp/treehouse_registry_test_#{:rand.uniform(100_000)}.db"
+    db_path = Path.join(System.tmp_dir!(), "treehouse_registry_test_#{:rand.uniform(100_000)}.db")
     {:ok, conn} = Registry.open(db_path)
     :ok = Registry.init_schema(conn)
 
@@ -98,7 +98,11 @@ defmodule Treehouse.RegistryTest do
       # Create with old timestamp (simulate 8 days ago)
       {:ok, _old} = Registry.allocate(conn, "old-branch", 10)
       eight_days_ago = DateTime.utc_now() |> DateTime.add(-8, :day) |> DateTime.to_iso8601()
-      Exqlite.Sqlite3.execute(conn, "UPDATE allocations SET last_seen_at = '#{eight_days_ago}' WHERE branch = 'old-branch'")
+
+      Exqlite.Sqlite3.execute(
+        conn,
+        "UPDATE allocations SET last_seen_at = '#{eight_days_ago}' WHERE branch = 'old-branch'"
+      )
 
       {:ok, _new} = Registry.allocate(conn, "new-branch", 11)
 

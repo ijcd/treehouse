@@ -18,14 +18,20 @@ defmodule Treehouse.Mdns.DnsSd do
 
     Logger.info("[treehouse] Registering mDNS: #{hostname} -> #{ip}:#{port}")
 
-    port_ref =
-      Port.open({:spawn_executable, System.find_executable(cmd)}, [
-        :binary,
-        :exit_status,
-        args: args
-      ])
+    # Spawn process that opens AND owns the port so it receives messages
+    pid =
+      spawn(fn ->
+        port_ref =
+          Port.open({:spawn_executable, Treehouse.System.find_executable(cmd)}, [
+            :binary,
+            :exit_status,
+            args: args
+          ])
 
-    {:ok, spawn(fn -> monitor_port(port_ref, hostname) end)}
+        monitor_port(port_ref, hostname)
+      end)
+
+    {:ok, pid}
   end
 
   @impl true

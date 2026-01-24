@@ -19,7 +19,20 @@ defmodule Treehouse.BranchTest do
     end
 
     test "returns error for non-git directory" do
-      assert {:error, _} = Branch.current("/tmp")
+      assert {:error, _} = Branch.current("/")
+    end
+  end
+
+  describe "Git adapter directly" do
+    test "current/0 without args uses cwd" do
+      # This exercises the default argument clause
+      {:ok, branch} = Treehouse.Branch.Git.current()
+      assert is_binary(branch)
+    end
+
+    test "returns error for non-git directory" do
+      {:error, msg} = Treehouse.Branch.Git.current("/")
+      assert msg =~ "not a git repository"
     end
   end
 
