@@ -18,7 +18,7 @@ defmodule Treehouse.TestHelpers do
     - `:ip_range_end` - last IP suffix (default: 99)
     - `:stale_threshold_days` - days before stale (default: 7)
   """
-  def setup_allocator(opts \\ []) do
+  def setup_allocator(opts) do
     prefix = Keyword.get(opts, :prefix, "treehouse_test")
     db_path = temp_db_path(prefix)
 
@@ -44,7 +44,7 @@ defmodule Treehouse.TestHelpers do
   @doc """
   Sets up an Allocator registered as Treehouse.Allocator (for facade tests).
   """
-  def setup_named_allocator(opts \\ []) do
+  def setup_named_allocator(opts) do
     opts
     |> Keyword.put(:name, Treehouse.Allocator)
     |> setup_allocator()
@@ -74,7 +74,7 @@ defmodule Treehouse.TestHelpers do
   @doc """
   Generates a unique temp database path.
   """
-  def temp_db_path(prefix \\ "treehouse") do
+  def temp_db_path(prefix) do
     Path.join(System.tmp_dir!(), "#{prefix}_#{:rand.uniform(100_000)}.db")
   end
 
