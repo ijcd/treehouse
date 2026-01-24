@@ -153,11 +153,33 @@ defmodule Mix.Tasks.TreehouseTest do
     end
   end
 
-  describe "error paths with closed connection" do
+  describe "error paths with mocked registry" do
+    # These tests need to stop the setup-started allocator and registry
+    # to avoid conflicts with the mock configuration
+    setup %{allocator: allocator, registry: registry} do
+      GenServer.stop(allocator)
+      GenServer.stop(registry)
+      :ok
+    end
+
     test "list shows error when database fails" do
-      # Get internal connection and close it to simulate DB failure
-      state = :sys.get_state(Treehouse.Allocator)
-      Exqlite.Sqlite3.close(state.conn)
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :list_allocations, fn ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} =
+        Treehouse.Allocator.start_link(db_path: "/mock/path", name: Treehouse.Allocator)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
 
       output =
         capture_io(:stderr, fn ->
@@ -168,8 +190,23 @@ defmodule Mix.Tasks.TreehouseTest do
     end
 
     test "info shows error when database fails" do
-      state = :sys.get_state(Treehouse.Allocator)
-      Exqlite.Sqlite3.close(state.conn)
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} =
+        Treehouse.Allocator.start_link(db_path: "/mock/path", name: Treehouse.Allocator)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
 
       output =
         capture_io(:stderr, fn ->
@@ -180,8 +217,23 @@ defmodule Mix.Tasks.TreehouseTest do
     end
 
     test "release shows error when database fails" do
-      state = :sys.get_state(Treehouse.Allocator)
-      Exqlite.Sqlite3.close(state.conn)
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} =
+        Treehouse.Allocator.start_link(db_path: "/mock/path", name: Treehouse.Allocator)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
 
       output =
         capture_io(:stderr, fn ->

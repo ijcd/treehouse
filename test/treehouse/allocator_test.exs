@@ -23,15 +23,15 @@ defmodule Treehouse.AllocatorTest do
       # Explicitly exercise defstruct-generated functions for coverage
       struct = Allocator.__struct__()
       assert %Allocator{} = struct
-      assert struct.conn == nil
+      assert struct.ip_range_start == nil
 
-      struct2 = Allocator.__struct__(conn: :test_conn)
-      assert struct2.conn == :test_conn
+      struct2 = Allocator.__struct__(ip_range_start: 10)
+      assert struct2.ip_range_start == 10
     end
   end
 
   describe "start_link/1" do
-    test "starts with default options" do
+    test "starts with default options", %{registry: _registry_pid} do
       # This exercises the default args clause
       db = temp_db_path("treehouse_defaults_test")
       Application.put_env(:treehouse, :registry_path, db)
@@ -41,27 +41,10 @@ defmodule Treehouse.AllocatorTest do
         File.rm(db)
       end)
 
-      # start_link/0 uses default empty list
+      # start_link/0 uses default empty list (Registry already running from setup)
       {:ok, pid} = Allocator.start_link()
       assert Process.alive?(pid)
       GenServer.stop(pid)
-    end
-
-    test "returns error when registry open fails" do
-      # Use global mode since GenServer spawns a new process
-      Hammox.set_mox_global()
-
-      Hammox.stub(Treehouse.MockRegistry, :open, fn _path ->
-        {:error, :database_open_failed}
-      end)
-
-      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
-
-      # Trap exits since GenServer sends EXIT when init returns {:stop, reason}
-      Process.flag(:trap_exit, true)
-
-      assert {:error, :database_open_failed} =
-               Allocator.start_link(db_path: "/any/path", name: nil)
     end
   end
 
@@ -195,64 +178,118 @@ defmodule Treehouse.AllocatorTest do
     end
   end
 
-  describe "error handling with closed connection" do
-    test "get_or_allocate returns error when connection closed", %{allocator: pid} do
-      state = :sys.get_state(pid)
-      Exqlite.Sqlite3.close(state.conn)
-
-      assert {:error, _} = Allocator.get_or_allocate(pid, "test")
+  describe "error handling with mocked registry" do
+    # Mock tests need to stop the setup-started allocator and registry
+    # to avoid conflicts with the mock configuration
+    setup %{allocator: allocator_pid, registry: registry_pid} do
+      GenServer.stop(allocator_pid)
+      GenServer.stop(registry_pid)
+      :ok
     end
 
-    test "release returns error when connection closed", %{allocator: pid} do
-      state = :sys.get_state(pid)
-      Exqlite.Sqlite3.close(state.conn)
+    test "get_or_allocate returns error when registry fails" do
+      Hammox.set_mox_global()
 
-      assert {:error, _} = Allocator.release(pid, "test")
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} = Allocator.start_link(db_path: "/mock/path", name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      assert {:error, :mock_db_error} = Allocator.get_or_allocate(pid, "test")
     end
 
-    test "list returns error when connection closed", %{allocator: pid} do
-      state = :sys.get_state(pid)
-      Exqlite.Sqlite3.close(state.conn)
+    test "release returns error when registry fails" do
+      Hammox.set_mox_global()
 
-      assert {:error, _} = Allocator.list(pid)
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} = Allocator.start_link(db_path: "/mock/path", name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      assert {:error, :mock_db_error} = Allocator.release(pid, "test")
     end
 
-    test "info returns error when connection closed", %{allocator: pid} do
-      state = :sys.get_state(pid)
-      Exqlite.Sqlite3.close(state.conn)
+    test "list returns error when registry fails" do
+      Hammox.set_mox_global()
 
-      assert {:error, _} = Allocator.info(pid, "test")
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :list_allocations, fn ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} = Allocator.start_link(db_path: "/mock/path", name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      assert {:error, :mock_db_error} = Allocator.list(pid)
+    end
+
+    test "info returns error when registry fails" do
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
+        {:error, :mock_db_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} = Allocator.start_link(db_path: "/mock/path", name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      assert {:error, :mock_db_error} = Allocator.info(pid, "test")
     end
 
     test "reclaim_stale_ip handles stale_allocations error" do
-      # Use mock registry to simulate specific failure scenario
       Hammox.set_mox_global()
 
-      Hammox.stub(Treehouse.MockRegistry, :open, fn _path ->
-        {:ok, :mock_conn}
-      end)
-
-      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn :mock_conn ->
-        :ok
-      end)
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
 
       # find_by_branch returns nil (branch not found)
-      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn :mock_conn, _branch ->
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
         {:ok, nil}
       end)
 
       # used_ips returns all IPs used (pool exhausted)
-      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn :mock_conn ->
-        {:ok, [10, 11]}
-      end)
+      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn -> {:ok, [10, 11]} end)
 
       # stale_allocations returns error (triggers the error path we want to test)
-      Hammox.stub(Treehouse.MockRegistry, :stale_allocations, fn :mock_conn, _days ->
+      Hammox.stub(Treehouse.MockRegistry, :stale_allocations, fn _days ->
         {:error, :mock_stale_error}
       end)
 
       Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
-
       Process.flag(:trap_exit, true)
 
       {:ok, pid} =
@@ -281,17 +318,15 @@ defmodule Treehouse.AllocatorTest do
     test "touch_allocation logs warning when touch fails" do
       Hammox.set_mox_global()
 
-      # Mock that simulates successful allocation but failing touch
-      Hammox.stub(Treehouse.MockRegistry, :open, fn _path -> {:ok, :mock_conn} end)
-      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn :mock_conn -> :ok end)
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn -> :ok end)
 
-      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn :mock_conn, _branch ->
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn _branch ->
         {:ok, nil}
       end)
 
-      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn :mock_conn -> {:ok, []} end)
+      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn -> {:ok, []} end)
 
-      Hammox.stub(Treehouse.MockRegistry, :allocate, fn :mock_conn, branch, ip_suffix ->
+      Hammox.stub(Treehouse.MockRegistry, :allocate, fn branch, ip_suffix ->
         now = DateTime.utc_now() |> DateTime.to_iso8601()
 
         {:ok,
@@ -306,7 +341,7 @@ defmodule Treehouse.AllocatorTest do
       end)
 
       # touch returns error to trigger warning log
-      Hammox.stub(Treehouse.MockRegistry, :touch, fn :mock_conn, _id ->
+      Hammox.stub(Treehouse.MockRegistry, :touch, fn _id ->
         {:error, :mock_touch_error}
       end)
 

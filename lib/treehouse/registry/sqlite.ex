@@ -1,29 +1,147 @@
 defmodule Treehouse.Registry.Sqlite do
   @moduledoc """
   SQLite-backed registry implementation.
+
+  This is a GenServer that manages its own database connection internally.
   """
+
+  use GenServer
 
   @behaviour Treehouse.Registry
 
   alias Treehouse.Branch
+  alias Treehouse.Config
 
-  @impl true
-  def open(path) do
+  # Client API
+
+  @impl Treehouse.Registry
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @impl Treehouse.Registry
+  def init_schema do
+    GenServer.call(__MODULE__, :init_schema)
+  end
+
+  @impl Treehouse.Registry
+  def allocate(branch, ip_suffix) do
+    GenServer.call(__MODULE__, {:allocate, branch, ip_suffix})
+  end
+
+  @impl Treehouse.Registry
+  def find_by_branch(branch) do
+    GenServer.call(__MODULE__, {:find_by_branch, branch})
+  end
+
+  @impl Treehouse.Registry
+  def find_by_ip(ip_suffix) do
+    GenServer.call(__MODULE__, {:find_by_ip, ip_suffix})
+  end
+
+  @impl Treehouse.Registry
+  def list_allocations do
+    GenServer.call(__MODULE__, :list_allocations)
+  end
+
+  @impl Treehouse.Registry
+  def touch(id) do
+    GenServer.call(__MODULE__, {:touch, id})
+  end
+
+  @impl Treehouse.Registry
+  def release(id) do
+    GenServer.call(__MODULE__, {:release, id})
+  end
+
+  @impl Treehouse.Registry
+  def stale_allocations(days) do
+    GenServer.call(__MODULE__, {:stale_allocations, days})
+  end
+
+  @impl Treehouse.Registry
+  def used_ips do
+    GenServer.call(__MODULE__, :used_ips)
+  end
+
+  # Server callbacks
+
+  @impl GenServer
+  def init(opts) do
+    path = Config.registry_path(opts)
     full_path = Path.expand(path)
     dir_name = Path.dirname(full_path)
     File.mkdir_p!(dir_name)
 
-    with {:ok, conn} <- Exqlite.Sqlite3.open(full_path) do
-      # WAL mode for concurrent readers/writers across VMs
-      :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA journal_mode=WAL")
-      # 5 second timeout when DB is locked by another VM
-      :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout=5000")
-      {:ok, conn}
+    case Exqlite.Sqlite3.open(full_path) do
+      {:ok, conn} ->
+        # WAL mode for concurrent readers/writers across VMs
+        :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA journal_mode=WAL")
+        # 5 second timeout when DB is locked by another VM
+        :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout=5000")
+        {:ok, %{conn: conn}}
+
+      {:error, reason} ->
+        {:stop, reason}
     end
   end
 
-  @impl true
-  def init_schema(conn) do
+  @impl GenServer
+  def handle_call(:init_schema, _from, %{conn: conn} = state) do
+    result = do_init_schema(conn)
+    {:reply, result, state}
+  end
+
+  def handle_call({:allocate, branch, ip_suffix}, _from, %{conn: conn} = state) do
+    result =
+      case do_find_by_branch(conn, branch) do
+        {:ok, nil} -> do_insert_allocation(conn, branch, ip_suffix)
+        {:ok, existing} -> {:ok, existing}
+        error -> error
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:find_by_branch, branch}, _from, %{conn: conn} = state) do
+    result = do_find_by_branch(conn, branch)
+    {:reply, result, state}
+  end
+
+  def handle_call({:find_by_ip, ip_suffix}, _from, %{conn: conn} = state) do
+    result = do_find_by_ip(conn, ip_suffix)
+    {:reply, result, state}
+  end
+
+  def handle_call(:list_allocations, _from, %{conn: conn} = state) do
+    result = do_list_allocations(conn)
+    {:reply, result, state}
+  end
+
+  def handle_call({:touch, id}, _from, %{conn: conn} = state) do
+    result = do_touch(conn, id)
+    {:reply, result, state}
+  end
+
+  def handle_call({:release, id}, _from, %{conn: conn} = state) do
+    result = do_release(conn, id)
+    {:reply, result, state}
+  end
+
+  def handle_call({:stale_allocations, days}, _from, %{conn: conn} = state) do
+    result = do_stale_allocations(conn, days)
+    {:reply, result, state}
+  end
+
+  def handle_call(:used_ips, _from, %{conn: conn} = state) do
+    result = do_used_ips(conn)
+    {:reply, result, state}
+  end
+
+  # Private implementation functions
+
+  defp do_init_schema(conn) do
     sql = """
     CREATE TABLE IF NOT EXISTS allocations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,16 +161,7 @@ defmodule Treehouse.Registry.Sqlite do
     end
   end
 
-  @impl true
-  def allocate(conn, branch, ip_suffix) do
-    case find_by_branch(conn, branch) do
-      {:ok, nil} -> insert_allocation(conn, branch, ip_suffix)
-      {:ok, existing} -> {:ok, existing}
-      error -> error
-    end
-  end
-
-  defp insert_allocation(conn, branch, ip_suffix) do
+  defp do_insert_allocation(conn, branch, ip_suffix) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
     sanitized = Branch.sanitize(branch)
 
@@ -93,32 +202,28 @@ defmodule Treehouse.Registry.Sqlite do
     end
   end
 
-  @impl true
-  def find_by_branch(conn, branch) do
+  defp do_find_by_branch(conn, branch) do
     sql =
       "SELECT id, branch, sanitized_name, ip_suffix, allocated_at, last_seen_at FROM allocations WHERE branch = ?1"
 
     query_one(conn, sql, [branch])
   end
 
-  @impl true
-  def find_by_ip(conn, ip_suffix) do
+  defp do_find_by_ip(conn, ip_suffix) do
     sql =
       "SELECT id, branch, sanitized_name, ip_suffix, allocated_at, last_seen_at FROM allocations WHERE ip_suffix = ?1"
 
     query_one(conn, sql, [ip_suffix])
   end
 
-  @impl true
-  def list_allocations(conn) do
+  defp do_list_allocations(conn) do
     sql =
       "SELECT id, branch, sanitized_name, ip_suffix, allocated_at, last_seen_at FROM allocations ORDER BY last_seen_at DESC"
 
     query_all(conn, sql, [])
   end
 
-  @impl true
-  def touch(conn, id) do
+  defp do_touch(conn, id) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
     sql = "UPDATE allocations SET last_seen_at = ?1 WHERE id = ?2"
 
@@ -129,8 +234,7 @@ defmodule Treehouse.Registry.Sqlite do
     end
   end
 
-  @impl true
-  def release(conn, id) do
+  defp do_release(conn, id) do
     sql = "DELETE FROM allocations WHERE id = ?1"
 
     with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql),
@@ -140,8 +244,7 @@ defmodule Treehouse.Registry.Sqlite do
     end
   end
 
-  @impl true
-  def stale_allocations(conn, days) do
+  defp do_stale_allocations(conn, days) do
     cutoff = DateTime.utc_now() |> DateTime.add(-days, :day) |> DateTime.to_iso8601()
 
     sql =
@@ -150,8 +253,7 @@ defmodule Treehouse.Registry.Sqlite do
     query_all(conn, sql, [cutoff])
   end
 
-  @impl true
-  def used_ips(conn) do
+  defp do_used_ips(conn) do
     sql = "SELECT ip_suffix FROM allocations"
 
     with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql) do
@@ -161,7 +263,7 @@ defmodule Treehouse.Registry.Sqlite do
     end
   end
 
-  # Helpers
+  # Query helpers
 
   defp query_one(conn, sql, params) do
     with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql),

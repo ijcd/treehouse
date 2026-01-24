@@ -7,7 +7,8 @@ defmodule Treehouse.Application do
   def start(_type, _args) do
     children =
       if Application.get_env(:treehouse, :start_allocator, true) do
-        [Treehouse.Allocator]
+        # Registry must start before Allocator (Allocator calls Registry.init_schema)
+        [Treehouse.Registry.Sqlite, Treehouse.Allocator]
       else
         []
       end
