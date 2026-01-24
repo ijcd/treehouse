@@ -1,0 +1,23 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ex,exs}"
+      run: mix format --check-formatted {staged_files}
+      fail_text: "Run 'mix format' to fix formatting"
+
+    compile:
+      glob: "*.{ex,exs}"
+      run: mix compile --warnings-as-errors
+      fail_text: "Fix compilation warnings"
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: mix test
+      fail_text: "Tests failed"
+
+    credo:
+      run: mix credo --strict
+      fail_text: "Credo issues found"

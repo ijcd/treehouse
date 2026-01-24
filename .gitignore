@@ -1,0 +1,26 @@
+# Dependencies
+/deps/
+/.fetch
+
+# Build
+/_build/
+/cover/
+/doc/
+
+# Mix
+/.nix-mix/
+/.nix-hex/
+*.ez
+
+# Test
+/tmp/
+
+# IDE
+.elixir_ls/
+.vscode/
+
+# OS
+.DS_Store
+
+# Lefthook
+lefthook-local.yml
