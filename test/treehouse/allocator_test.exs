@@ -23,6 +23,18 @@ defmodule Treehouse.AllocatorTest do
     {:ok, allocator: pid, db_path: db_path}
   end
 
+  describe "struct" do
+    test "defstruct creates valid struct" do
+      # Explicitly exercise defstruct-generated functions for coverage
+      struct = Allocator.__struct__()
+      assert %Allocator{} = struct
+      assert struct.conn == nil
+
+      struct2 = Allocator.__struct__(conn: :test_conn)
+      assert struct2.conn == :test_conn
+    end
+  end
+
   describe "start_link/1" do
     test "starts with default options" do
       # This exercises the default args clause

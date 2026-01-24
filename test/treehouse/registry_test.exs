@@ -157,4 +157,54 @@ defmodule Treehouse.RegistryTest do
       assert {:error, _} = Registry.used_ips(conn)
     end
   end
+
+  describe "last_insert_id edge case" do
+    test "allocate returns error when last_insert_rowid returns no rows", %{conn: conn} do
+      # Use meck to mock step to return :done for last_insert_rowid query only
+      # This exercises the defensive error path that SQLite never actually hits
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+
+      # Use process dictionary to track INSERT completion
+      Process.put(:insert_done, false)
+
+      :meck.expect(Exqlite.Sqlite3, :step, fn conn_ref, stmt ->
+        result = :meck.passthrough([conn_ref, stmt])
+
+        case result do
+          :done ->
+            # INSERT completed, next step call will be last_insert_rowid
+            Process.put(:insert_done, true)
+            :done
+
+          {:row, [_id]} ->
+            # Check if INSERT was done (meaning this is last_insert_rowid)
+            if Process.get(:insert_done, false) do
+              # Sabotage the last_insert_rowid query!
+              :done
+            else
+              result
+            end
+
+          other ->
+            other
+        end
+      end)
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Exqlite.Sqlite3)
+        rescue
+          _ -> :ok
+        catch
+          _, _ -> :ok
+        end
+      end)
+
+      # This should hit the error path in last_insert_id
+      # The error propagates up as a MatchError since insert_allocation does {:ok, id} = last_insert_id()
+      assert_raise MatchError, fn ->
+        Registry.allocate(conn, "meck-test-branch", 50)
+      end
+    end
+  end
 end
