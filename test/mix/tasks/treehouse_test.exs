@@ -117,6 +117,17 @@ defmodule Mix.Tasks.TreehouseTest do
 
       assert output =~ "Released allocation for: nonexistent"
     end
+
+    test "uses current branch when no arg given" do
+      # This tests the {:ok, branch} -> branch path in get_current_branch
+      output =
+        capture_io(fn ->
+          Mix.Tasks.Treehouse.Release.run([])
+        end)
+
+      # Should release (whether allocation existed or not)
+      assert output =~ "Released allocation for:"
+    end
   end
 
   describe "error paths with mocked branch" do
@@ -148,6 +159,45 @@ defmodule Mix.Tasks.TreehouseTest do
         end)
 
       assert output =~ "Error getting branch:"
+    end
+  end
+
+  describe "error paths with closed connection" do
+    test "list shows error when database fails" do
+      # Get internal connection and close it to simulate DB failure
+      state = :sys.get_state(Treehouse.Allocator)
+      Exqlite.Sqlite3.close(state.conn)
+
+      output =
+        capture_io(:stderr, fn ->
+          Mix.Tasks.Treehouse.List.run([])
+        end)
+
+      assert output =~ "Error:"
+    end
+
+    test "info shows error when database fails" do
+      state = :sys.get_state(Treehouse.Allocator)
+      Exqlite.Sqlite3.close(state.conn)
+
+      output =
+        capture_io(:stderr, fn ->
+          Mix.Tasks.Treehouse.Info.run(["some-branch"])
+        end)
+
+      assert output =~ "Error:"
+    end
+
+    test "release shows error when database fails" do
+      state = :sys.get_state(Treehouse.Allocator)
+      Exqlite.Sqlite3.close(state.conn)
+
+      output =
+        capture_io(:stderr, fn ->
+          Mix.Tasks.Treehouse.Release.run(["some-branch"])
+        end)
+
+      assert output =~ "Error:"
     end
   end
 end

@@ -120,4 +120,41 @@ defmodule Treehouse.RegistryTest do
       assert Enum.sort(ips) == [10, 20]
     end
   end
+
+  describe "error handling with closed connection" do
+    test "init_schema returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.init_schema(conn)
+    end
+
+    test "allocate returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.allocate(conn, "test", 10)
+    end
+
+    test "find_by_branch returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.find_by_branch(conn, "test")
+    end
+
+    test "find_by_ip returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.find_by_ip(conn, 10)
+    end
+
+    test "list_allocations returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.list_allocations(conn)
+    end
+
+    test "stale_allocations returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.stale_allocations(conn, 7)
+    end
+
+    test "used_ips returns error when connection closed", %{conn: conn} do
+      Exqlite.Sqlite3.close(conn)
+      assert {:error, _} = Registry.used_ips(conn)
+    end
+  end
 end

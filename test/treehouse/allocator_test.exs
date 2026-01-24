@@ -1,7 +1,12 @@
 defmodule Treehouse.AllocatorTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+  import Hammox
+
   alias Treehouse.Allocator
+
+  setup :verify_on_exit!
 
   setup do
     db_path =
@@ -12,9 +17,45 @@ defmodule Treehouse.AllocatorTest do
     on_exit(fn ->
       if Process.alive?(pid), do: GenServer.stop(pid)
       File.rm(db_path)
+      Application.delete_env(:treehouse, :registry_adapter)
     end)
 
-    {:ok, allocator: pid}
+    {:ok, allocator: pid, db_path: db_path}
+  end
+
+  describe "start_link/1" do
+    test "starts with default options" do
+      # This exercises the default args clause
+      db = Path.join(System.tmp_dir!(), "treehouse_defaults_test_#{:rand.uniform(100_000)}.db")
+      Application.put_env(:treehouse, :registry_path, db)
+
+      on_exit(fn ->
+        Application.delete_env(:treehouse, :registry_path)
+        File.rm(db)
+      end)
+
+      # start_link/0 uses default empty list
+      {:ok, pid} = Allocator.start_link()
+      assert Process.alive?(pid)
+      GenServer.stop(pid)
+    end
+
+    test "returns error when registry open fails" do
+      # Use global mode since GenServer spawns a new process
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :open, fn _path ->
+        {:error, :database_open_failed}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+
+      # Trap exits since GenServer sends EXIT when init returns {:stop, reason}
+      Process.flag(:trap_exit, true)
+
+      assert {:error, :database_open_failed} =
+               Allocator.start_link(db_path: "/any/path", name: nil)
+    end
   end
 
   describe "get_or_allocate/2" do
@@ -138,7 +179,96 @@ defmodule Treehouse.AllocatorTest do
       {:ok, _} = Allocator.get_or_allocate(pid, "branch2")
 
       # Third allocation should fail - pool exhausted, nothing stale
-      assert {:error, :pool_exhausted} = Allocator.get_or_allocate(pid, "branch3")
+      log =
+        capture_log(fn ->
+          assert {:error, :pool_exhausted} = Allocator.get_or_allocate(pid, "branch3")
+        end)
+
+      assert log =~ "Failed to allocate IP"
+    end
+  end
+
+  describe "error handling with closed connection" do
+    test "get_or_allocate returns error when connection closed", %{allocator: pid} do
+      state = :sys.get_state(pid)
+      Exqlite.Sqlite3.close(state.conn)
+
+      assert {:error, _} = Allocator.get_or_allocate(pid, "test")
+    end
+
+    test "release returns error when connection closed", %{allocator: pid} do
+      state = :sys.get_state(pid)
+      Exqlite.Sqlite3.close(state.conn)
+
+      assert {:error, _} = Allocator.release(pid, "test")
+    end
+
+    test "list returns error when connection closed", %{allocator: pid} do
+      state = :sys.get_state(pid)
+      Exqlite.Sqlite3.close(state.conn)
+
+      assert {:error, _} = Allocator.list(pid)
+    end
+
+    test "info returns error when connection closed", %{allocator: pid} do
+      state = :sys.get_state(pid)
+      Exqlite.Sqlite3.close(state.conn)
+
+      assert {:error, _} = Allocator.info(pid, "test")
+    end
+
+    test "reclaim_stale_ip handles stale_allocations error" do
+      # Use mock registry to simulate specific failure scenario
+      Hammox.set_mox_global()
+
+      Hammox.stub(Treehouse.MockRegistry, :open, fn _path ->
+        {:ok, :mock_conn}
+      end)
+
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn :mock_conn ->
+        :ok
+      end)
+
+      # find_by_branch returns nil (branch not found)
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn :mock_conn, _branch ->
+        {:ok, nil}
+      end)
+
+      # used_ips returns all IPs used (pool exhausted)
+      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn :mock_conn ->
+        {:ok, [10, 11]}
+      end)
+
+      # stale_allocations returns error (triggers the error path we want to test)
+      Hammox.stub(Treehouse.MockRegistry, :stale_allocations, fn :mock_conn, _days ->
+        {:error, :mock_stale_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} =
+        Allocator.start_link(
+          db_path: "/mock/path",
+          name: nil,
+          ip_range_start: 10,
+          ip_range_end: 11,
+          stale_threshold_days: 0
+        )
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      # This should hit: find_by_branch -> nil, find_free_ip -> exhausted,
+      # reclaim_stale_ip -> {:error, _} -> :none_reclaimable -> pool_exhausted
+      log =
+        capture_log(fn ->
+          assert {:error, :pool_exhausted} = Allocator.get_or_allocate(pid, "branch3")
+        end)
+
+      assert log =~ "Failed to allocate IP"
     end
   end
 end
