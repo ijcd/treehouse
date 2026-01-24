@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:hex.pm)",
+      "Bash(nix develop --command bash -c \"mix compile && mix test\")",
+      "Bash(nix develop:*)",
+      "Skill(superpowers:requesting-code-review)",
+      "WebFetch(domain:repo.hex.pm)",
+      "WebFetch(domain:elixirforum.com)",
+      "WebFetch(domain:hexdocs.pm)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  }
+}

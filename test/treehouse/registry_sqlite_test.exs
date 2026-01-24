@@ -1,6 +1,8 @@
 defmodule Treehouse.Registry.SqliteTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Treehouse.Registry
   alias Treehouse.Registry.Sqlite
 
@@ -55,6 +57,99 @@ defmodule Treehouse.Registry.SqliteTest do
     end
   end
 
+  describe "init_schema paths" do
+    test "init_schema returns :ok on success" do
+      db_path = temp_db_path("sqlite_init_schema_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
+
+      # This exercises the :ok -> :ok path in do_init_schema (line 159)
+      assert :ok = GenServer.call(pid, :init_schema)
+      # Call again to verify idempotency
+      assert :ok = GenServer.call(pid, :init_schema)
+    end
+
+    test "init_schema returns error when execute fails" do
+      db_path = temp_db_path("sqlite_init_schema_error_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+
+        try do
+          :meck.unload(Exqlite.Sqlite3)
+        catch
+          _, _ -> :ok
+        end
+      end)
+
+      # Mock execute to return error for init_schema
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+
+      :meck.expect(Exqlite.Sqlite3, :execute, fn _conn, _sql ->
+        {:error, :mock_execute_error}
+      end)
+
+      # This exercises the {:error, _} = err -> err path (line 160)
+      assert {:error, :mock_execute_error} = GenServer.call(pid, :init_schema)
+    end
+  end
+
+  describe "allocate paths" do
+    test "allocate returns existing allocation without inserting" do
+      db_path = temp_db_path("sqlite_existing_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
+
+      # First allocation creates new record
+      {:ok, first} = GenServer.call(pid, {:allocate, "test-branch", 10})
+      assert first.branch == "test-branch"
+      assert first.ip_suffix == 10
+
+      # Second allocation with same branch returns existing (line 100)
+      {:ok, second} = GenServer.call(pid, {:allocate, "test-branch", 99})
+      assert second.id == first.id
+      assert second.ip_suffix == 10
+    end
+
+    test "allocate returns error when find_by_branch fails" do
+      db_path = temp_db_path("sqlite_allocate_error_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+
+        try do
+          :meck.unload(Exqlite.Sqlite3)
+        catch
+          _, _ -> :ok
+        end
+      end)
+
+      # Mock prepare to return error (which will make do_find_by_branch fail)
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+
+      :meck.expect(Exqlite.Sqlite3, :prepare, fn _conn, _sql ->
+        {:error, :mock_prepare_error}
+      end)
+
+      # This exercises the error -> error path (line 101)
+      assert {:error, :mock_prepare_error} = GenServer.call(pid, {:allocate, "test", 10})
+    end
+  end
+
   describe "last_insert_id edge case" do
     setup do
       setup_registry(prefix: "sqlite_edge_test")
@@ -105,13 +200,18 @@ defmodule Treehouse.Registry.SqliteTest do
       Process.flag(:trap_exit, true)
 
       # The error happens in the GenServer, which crashes.
-      # The GenServer.call raises an exit with the error details
-      exit_reason = catch_exit(Registry.allocate("meck-test-branch", 50))
+      # Capture the log to avoid noisy output
+      {exit_reason, log} =
+        with_log(fn ->
+          catch_exit(Registry.allocate("meck-test-branch", 50))
+        end)
 
       # Verify we got the expected exit reason containing the :no_id error
       # Exit reason format: {{{:badmatch, {:error, :no_id}}, stacktrace}, {GenServer, :call, args}}
       assert {{{:badmatch, {:error, :no_id}}, _stacktrace}, {GenServer, :call, _args}} =
                exit_reason
+
+      assert log =~ "GenServer Treehouse.Registry.Sqlite terminating"
     end
   end
 end
