@@ -1,18 +1,10 @@
 defmodule TreehouseTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+
+  import Treehouse.TestHelpers
 
   setup do
-    db_path =
-      Path.join(System.tmp_dir!(), "treehouse_integration_test_#{:rand.uniform(100_000)}.db")
-
-    {:ok, pid} = Treehouse.Allocator.start_link(db_path: db_path, name: Treehouse.Allocator)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-      File.rm(db_path)
-    end)
-
-    :ok
+    setup_named_allocator(prefix: "treehouse_integration_test")
   end
 
   describe "full allocation flow" do

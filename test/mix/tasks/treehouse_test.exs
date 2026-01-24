@@ -3,22 +3,13 @@ defmodule Mix.Tasks.TreehouseTest do
 
   import ExUnit.CaptureIO
   import Hammox
+  import Treehouse.TestHelpers
 
   setup :verify_on_exit!
 
   setup do
-    # Start Allocator with temp DB
-    db_path = Path.join(System.tmp_dir!(), "treehouse_mix_test_#{:rand.uniform(100_000)}.db")
-    {:ok, pid} = Treehouse.Allocator.start_link(db_path: db_path, name: Treehouse.Allocator)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-      File.rm(db_path)
-      # Reset adapter to default
-      Application.delete_env(:treehouse, :branch_adapter)
-    end)
-
-    :ok
+    on_exit(&cleanup_adapter_env/0)
+    setup_named_allocator(prefix: "treehouse_mix_test")
   end
 
   describe "mix treehouse" do

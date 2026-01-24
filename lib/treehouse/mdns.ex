@@ -38,13 +38,4 @@ defmodule Treehouse.Mdns do
   def unregister(reference) do
     adapter().unregister(reference)
   end
-
-  @doc """
-  Builds the dns-sd command and arguments.
-  Delegates to the dns-sd adapter for the command format.
-  """
-  @spec build_command(String.t(), String.t(), integer(), keyword()) :: {String.t(), [String.t()]}
-  def build_command(name, ip, port, opts \\ []) do
-    __MODULE__.DnsSd.build_command(name, ip, port, opts)
-  end
 end

@@ -71,7 +71,6 @@ defmodule Treehouse.Branch do
   """
   @spec hostname(String.t(), keyword()) :: String.t()
   def hostname(branch, opts \\ []) do
-    domain = opts[:domain] || Application.get_env(:treehouse, :domain, "local")
-    "#{branch}.#{domain}"
+    "#{branch}.#{Treehouse.Config.domain(opts)}"
   end
 end

@@ -1,16 +1,12 @@
 defmodule Treehouse.RegistryTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+
+  import Treehouse.TestHelpers
 
   alias Treehouse.Registry
 
   setup do
-    db_path = Path.join(System.tmp_dir!(), "treehouse_registry_test_#{:rand.uniform(100_000)}.db")
-    {:ok, conn} = Registry.open(db_path)
-    :ok = Registry.init_schema(conn)
-
-    on_exit(fn -> File.rm(db_path) end)
-
-    {:ok, conn: conn}
+    setup_registry()
   end
 
   describe "allocate/3" do

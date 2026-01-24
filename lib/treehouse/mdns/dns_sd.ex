@@ -13,8 +13,7 @@ defmodule Treehouse.Mdns.DnsSd do
   @impl true
   def register(name, ip, port, opts \\ []) do
     {cmd, args} = build_command(name, ip, port, opts)
-    domain = Keyword.get(opts, :domain) || Application.get_env(:treehouse, :domain, "local")
-    hostname = "#{name}.#{domain}"
+    hostname = "#{name}.#{Treehouse.Config.domain(opts)}"
 
     Logger.info("[treehouse] Registering mDNS: #{hostname} -> #{ip}:#{port}")
 
@@ -46,7 +45,7 @@ defmodule Treehouse.Mdns.DnsSd do
   """
   def build_command(name, ip, port, opts \\ []) do
     service_type = Keyword.get(opts, :service_type, "_http._tcp")
-    domain = Keyword.get(opts, :domain) || Application.get_env(:treehouse, :domain, "local")
+    domain = Treehouse.Config.domain(opts)
     hostname = "#{name}.#{domain}"
 
     args = [

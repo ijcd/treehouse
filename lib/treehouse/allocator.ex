@@ -9,6 +9,7 @@ defmodule Treehouse.Allocator do
   use GenServer
   require Logger
 
+  alias Treehouse.Config
   alias Treehouse.Registry
 
   defstruct [:conn, :ip_range_start, :ip_range_end, :stale_threshold_days]
@@ -62,31 +63,15 @@ defmodule Treehouse.Allocator do
 
   @impl true
   def init(opts) do
-    db_path =
-      Keyword.get(opts, :db_path) ||
-        Application.get_env(:treehouse, :registry_path, "~/.local/share/treehouse/registry.db")
-
-    ip_range_start =
-      Keyword.get(opts, :ip_range_start) ||
-        Application.get_env(:treehouse, :ip_range_start, 10)
-
-    ip_range_end =
-      Keyword.get(opts, :ip_range_end) ||
-        Application.get_env(:treehouse, :ip_range_end, 99)
-
-    stale_threshold_days =
-      Keyword.get(opts, :stale_threshold_days) ||
-        Application.get_env(:treehouse, :stale_threshold_days, 7)
-
-    case Registry.open(db_path) do
+    case Registry.open(Config.registry_path(opts)) do
       {:ok, conn} ->
         :ok = Registry.init_schema(conn)
 
         state = %__MODULE__{
           conn: conn,
-          ip_range_start: ip_range_start,
-          ip_range_end: ip_range_end,
-          stale_threshold_days: stale_threshold_days
+          ip_range_start: Config.ip_range_start(opts),
+          ip_range_end: Config.ip_range_end(opts),
+          stale_threshold_days: Config.stale_threshold_days(opts)
         }
 
         {:ok, state}
@@ -102,9 +87,9 @@ defmodule Treehouse.Allocator do
       {:ok, nil} ->
         case allocate_new_ip(state, branch) do
           {:ok, alloc} ->
-            ip = format_ip(alloc.ip_suffix)
+            ip = Config.format_ip(alloc.ip_suffix)
             Logger.info("[treehouse] Allocated #{ip} for branch '#{branch}'")
-            Registry.touch(state.conn, alloc.id)
+            touch_allocation(state.conn, alloc.id)
             {:reply, {:ok, ip}, state}
 
           {:error, reason} ->
@@ -113,9 +98,9 @@ defmodule Treehouse.Allocator do
         end
 
       {:ok, existing} ->
-        ip = format_ip(existing.ip_suffix)
+        ip = Config.format_ip(existing.ip_suffix)
         Logger.debug("[treehouse] Reusing #{ip} for branch '#{branch}'")
-        Registry.touch(state.conn, existing.id)
+        touch_allocation(state.conn, existing.id)
         {:reply, {:ok, ip}, state}
 
       {:error, reason} ->
@@ -130,7 +115,7 @@ defmodule Treehouse.Allocator do
         {:reply, :ok, state}
 
       {:ok, alloc} ->
-        ip = format_ip(alloc.ip_suffix)
+        ip = Config.format_ip(alloc.ip_suffix)
         Logger.info("[treehouse] Released #{ip} for branch '#{branch}'")
         Registry.release(state.conn, alloc.id)
         {:reply, :ok, state}
@@ -181,7 +166,7 @@ defmodule Treehouse.Allocator do
   defp reclaim_stale_ip(state) do
     case Registry.stale_allocations(state.conn, state.stale_threshold_days) do
       {:ok, [oldest | _]} ->
-        ip = format_ip(oldest.ip_suffix)
+        ip = Config.format_ip(oldest.ip_suffix)
         Logger.info("[treehouse] Reclaiming stale IP #{ip} from branch '#{oldest.branch}'")
         Registry.release(state.conn, oldest.id)
         {:ok, oldest.ip_suffix}
@@ -194,5 +179,13 @@ defmodule Treehouse.Allocator do
     end
   end
 
-  defp format_ip(suffix), do: "127.0.0.#{suffix}"
+  defp touch_allocation(conn, id) do
+    case Registry.touch(conn, id) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[treehouse] Failed to update last_seen: #{inspect(reason)}")
+    end
+  end
 end

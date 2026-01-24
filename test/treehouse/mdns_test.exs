@@ -7,9 +7,9 @@ defmodule Treehouse.MdnsTest do
 
   setup :verify_on_exit!
 
-  describe "build_command/3" do
+  describe "DnsSd.build_command/4" do
     test "builds dns-sd proxy command for hostname resolution" do
-      {cmd, args} = Mdns.build_command("my-branch", "127.0.0.42", 4000)
+      {cmd, args} = Mdns.DnsSd.build_command("my-branch", "127.0.0.42", 4000)
       assert cmd == "dns-sd"
       assert "-P" in args
       assert "my-branch" in args
@@ -23,12 +23,14 @@ defmodule Treehouse.MdnsTest do
     end
 
     test "uses custom service type" do
-      {_cmd, args} = Mdns.build_command("branch", "127.0.0.10", 4000, service_type: "_https._tcp")
+      {_cmd, args} =
+        Mdns.DnsSd.build_command("branch", "127.0.0.10", 4000, service_type: "_https._tcp")
+
       assert "_https._tcp" in args
     end
 
     test "uses custom domain" do
-      {_cmd, args} = Mdns.build_command("branch", "127.0.0.10", 4000, domain: "dev")
+      {_cmd, args} = Mdns.DnsSd.build_command("branch", "127.0.0.10", 4000, domain: "dev")
       assert "dev" in args
       # hostname uses custom domain
       assert "branch.dev" in args
@@ -52,15 +54,6 @@ defmodule Treehouse.MdnsTest do
       assert :ok = Mdns.unregister(pid)
       Process.sleep(50)
       refute Process.alive?(pid)
-    end
-  end
-
-  describe "DnsSd build_command/3 default args" do
-    test "build_command/3 without opts" do
-      # Exercise the default opts clause
-      {cmd, args} = Treehouse.Mdns.DnsSd.build_command("test", "127.0.0.1", 4000)
-      assert cmd == "dns-sd"
-      assert "test" in args
     end
   end
 

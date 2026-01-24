@@ -23,12 +23,15 @@ defmodule Treehouse do
         url: [host: Treehouse.Branch.sanitize(branch) <> ".local"]
   """
 
+  alias Treehouse.Config
+
   @doc """
   Allocates an IP for the given branch, or returns existing allocation.
   Updates last_seen_at timestamp on each call.
 
   Returns `{:ok, ip_string}` or `{:error, reason}`.
   """
+  @spec allocate(String.t()) :: {:ok, String.t()} | {:error, term()}
   def allocate(branch) do
     Treehouse.Allocator.get_or_allocate(branch)
   end
@@ -36,6 +39,7 @@ defmodule Treehouse do
   @doc """
   Releases the allocation for a branch.
   """
+  @spec release(String.t()) :: :ok | {:error, term()}
   def release(branch) do
     Treehouse.Allocator.release(branch)
   end
@@ -43,6 +47,7 @@ defmodule Treehouse do
   @doc """
   Lists all current allocations.
   """
+  @spec list() :: {:ok, [map()]} | {:error, term()}
   def list do
     Treehouse.Allocator.list()
   end
@@ -50,9 +55,21 @@ defmodule Treehouse do
   @doc """
   Gets allocation info for a specific branch.
   """
+  @spec info(String.t()) :: {:ok, map() | nil} | {:error, term()}
   def info(branch) do
     Treehouse.Allocator.info(branch)
   end
+
+  @doc """
+  Formats an IP suffix to a full IP string.
+
+  ## Example
+
+      Treehouse.format_ip(42)
+      # => "127.0.0.42"
+  """
+  @spec format_ip(integer()) :: String.t()
+  defdelegate format_ip(suffix), to: Config
 
   @doc """
   Parses an IP string like "127.0.0.10" into a tuple {127, 0, 0, 10}.

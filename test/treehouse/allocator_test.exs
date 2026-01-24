@@ -3,24 +3,19 @@ defmodule Treehouse.AllocatorTest do
 
   import ExUnit.CaptureLog
   import Hammox
+  import Treehouse.TestHelpers
 
   alias Treehouse.Allocator
+
+  # Default IP range for tests (matches Allocator defaults)
+  @default_ip_start 10
+  @default_ip_end 99
 
   setup :verify_on_exit!
 
   setup do
-    db_path =
-      Path.join(System.tmp_dir!(), "treehouse_allocator_test_#{:rand.uniform(100_000)}.db")
-
-    {:ok, pid} = Allocator.start_link(db_path: db_path, name: nil)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-      File.rm(db_path)
-      Application.delete_env(:treehouse, :registry_adapter)
-    end)
-
-    {:ok, allocator: pid, db_path: db_path}
+    on_exit(&cleanup_adapter_env/0)
+    setup_allocator(prefix: "treehouse_allocator_test")
   end
 
   describe "struct" do
@@ -38,7 +33,7 @@ defmodule Treehouse.AllocatorTest do
   describe "start_link/1" do
     test "starts with default options" do
       # This exercises the default args clause
-      db = Path.join(System.tmp_dir!(), "treehouse_defaults_test_#{:rand.uniform(100_000)}.db")
+      db = temp_db_path("treehouse_defaults_test")
       Application.put_env(:treehouse, :registry_path, db)
 
       on_exit(fn ->
@@ -91,7 +86,7 @@ defmodule Treehouse.AllocatorTest do
     test "allocates IPs in configured range", %{allocator: pid} do
       {:ok, ip} = Allocator.get_or_allocate(pid, "main")
       [_, _, _, suffix] = ip |> String.split(".") |> Enum.map(&String.to_integer/1)
-      assert suffix >= 10 and suffix <= 99
+      assert suffix >= @default_ip_start and suffix <= @default_ip_end
     end
   end
 
@@ -138,7 +133,7 @@ defmodule Treehouse.AllocatorTest do
   describe "lazy reclamation" do
     test "reclaims stale IP when pool exhausted" do
       # Start with tiny pool (only 2 IPs)
-      db = Path.join(System.tmp_dir!(), "treehouse_reclaim_test_#{:rand.uniform(100_000)}.db")
+      db = temp_db_path("treehouse_reclaim_test")
 
       {:ok, pid} =
         Allocator.start_link(
@@ -169,7 +164,7 @@ defmodule Treehouse.AllocatorTest do
 
     test "returns error when pool exhausted and no stale IPs" do
       # Start with tiny pool (only 2 IPs) and long stale threshold
-      db = Path.join(System.tmp_dir!(), "treehouse_exhausted_test_#{:rand.uniform(100_000)}.db")
+      db = temp_db_path("treehouse_exhausted_test")
 
       {:ok, pid} =
         Allocator.start_link(
@@ -281,6 +276,57 @@ defmodule Treehouse.AllocatorTest do
         end)
 
       assert log =~ "Failed to allocate IP"
+    end
+
+    test "touch_allocation logs warning when touch fails" do
+      Hammox.set_mox_global()
+
+      # Mock that simulates successful allocation but failing touch
+      Hammox.stub(Treehouse.MockRegistry, :open, fn _path -> {:ok, :mock_conn} end)
+      Hammox.stub(Treehouse.MockRegistry, :init_schema, fn :mock_conn -> :ok end)
+
+      Hammox.stub(Treehouse.MockRegistry, :find_by_branch, fn :mock_conn, _branch ->
+        {:ok, nil}
+      end)
+
+      Hammox.stub(Treehouse.MockRegistry, :used_ips, fn :mock_conn -> {:ok, []} end)
+
+      Hammox.stub(Treehouse.MockRegistry, :allocate, fn :mock_conn, branch, ip_suffix ->
+        now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+        {:ok,
+         %{
+           id: 1,
+           branch: branch,
+           ip_suffix: ip_suffix,
+           sanitized_name: branch,
+           allocated_at: now,
+           last_seen_at: now
+         }}
+      end)
+
+      # touch returns error to trigger warning log
+      Hammox.stub(Treehouse.MockRegistry, :touch, fn :mock_conn, _id ->
+        {:error, :mock_touch_error}
+      end)
+
+      Application.put_env(:treehouse, :registry_adapter, Treehouse.MockRegistry)
+      Process.flag(:trap_exit, true)
+
+      {:ok, pid} = Allocator.start_link(db_path: "/mock/path", name: nil)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+      end)
+
+      # Allocation succeeds but touch fails - should log warning
+      log =
+        capture_log(fn ->
+          {:ok, ip} = Allocator.get_or_allocate(pid, "test-branch")
+          assert ip == "127.0.0.10"
+        end)
+
+      assert log =~ "Failed to update last_seen"
     end
   end
 end
