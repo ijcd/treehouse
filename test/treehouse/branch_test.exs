@@ -100,14 +100,18 @@ defmodule Treehouse.BranchTest do
     end
   end
 
-  describe "hostname/1" do
-    test "appends domain suffix" do
-      assert Branch.hostname("main") == "main.local"
-      assert Branch.hostname("feature-branch") == "feature-branch.local"
+  describe "hostname/2" do
+    test "creates hostname from project and branch" do
+      assert Branch.hostname("myapp", "main") == "main.myapp.local"
+      assert Branch.hostname("myapp", "feature-branch") == "feature-branch.myapp.local"
+    end
+
+    test "sanitizes both project and branch" do
+      assert Branch.hostname("MyApp", "Feature/Branch") == "feature-branch.myapp.local"
     end
 
     test "uses configured domain" do
-      assert Branch.hostname("main", domain: "dev") == "main.dev"
+      assert Branch.hostname("myapp", "main", domain: "dev") == "main.myapp.dev"
     end
   end
 end

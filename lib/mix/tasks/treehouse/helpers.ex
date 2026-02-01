@@ -26,18 +26,28 @@ defmodule Mix.Tasks.Treehouse.Helpers do
   end
 
   @doc """
-  Executes a callback with the branch, handling errors.
+  Gets the current project name.
+
+  Returns the project name string.
+  """
+  def get_current_project do
+    Treehouse.Project.current!()
+  end
+
+  @doc """
+  Executes a callback with project and branch, handling errors.
 
   If branch is an error tuple, prints error to stderr.
-  Otherwise, calls the callback with the branch name.
+  Otherwise, calls the callback with project and branch.
   """
-  def with_branch(branch, callback) do
+  def with_project_branch(branch, callback) do
     case branch do
       {:error, reason} ->
         Mix.shell().error("Error getting branch: #{reason}")
 
       branch when is_binary(branch) ->
-        callback.(branch)
+        project = get_current_project()
+        callback.(project, branch)
     end
   end
 

@@ -1,9 +1,6 @@
 defmodule Treehouse.Registry.SqliteTest do
   use ExUnit.Case, async: false
 
-  import ExUnit.CaptureLog
-
-  alias Treehouse.Registry
   alias Treehouse.Registry.Sqlite
 
   import Treehouse.TestFixtures
@@ -25,13 +22,16 @@ defmodule Treehouse.Registry.SqliteTest do
     end
   end
 
+  # NOTE: These tests use meck to simulate Exqlite errors that are hard to trigger
+  # in practice (disk full, corrupt DB, etc). They test defensive error handling.
+  # Consider these integration tests of error paths rather than unit tests.
   describe "init/1 error path" do
     test "returns stop when database open fails" do
       # Use a temp path so mkdir_p succeeds
       db_path = temp_db_path("sqlite_open_fail_test")
 
-      # Meck the Exqlite.Sqlite3.open to return error
-      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+      # Simulates: disk full, permission denied, etc.
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick, :no_passthrough_cover])
 
       :meck.expect(Exqlite.Sqlite3, :open, fn _path ->
         {:error, :mock_open_error}
@@ -89,7 +89,7 @@ defmodule Treehouse.Registry.SqliteTest do
       end)
 
       # Mock execute to return error for init_schema
-      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick, :no_passthrough_cover])
 
       :meck.expect(Exqlite.Sqlite3, :execute, fn _conn, _sql ->
         {:error, :mock_execute_error}
@@ -112,12 +112,13 @@ defmodule Treehouse.Registry.SqliteTest do
       end)
 
       # First allocation creates new record
-      {:ok, first} = GenServer.call(pid, {:allocate, "test-branch", 10})
+      {:ok, first} = GenServer.call(pid, {:allocate, "testapp", "test-branch", 10})
+      assert first.project == "testapp"
       assert first.branch == "test-branch"
       assert first.ip_suffix == 10
 
-      # Second allocation with same branch returns existing (line 100)
-      {:ok, second} = GenServer.call(pid, {:allocate, "test-branch", 99})
+      # Second allocation with same project/branch returns existing (line 100)
+      {:ok, second} = GenServer.call(pid, {:allocate, "testapp", "test-branch", 99})
       assert second.id == first.id
       assert second.ip_suffix == 10
     end
@@ -139,79 +140,96 @@ defmodule Treehouse.Registry.SqliteTest do
       end)
 
       # Mock prepare to return error (which will make do_find_by_branch fail)
-      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
+      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick, :no_passthrough_cover])
 
       :meck.expect(Exqlite.Sqlite3, :prepare, fn _conn, _sql ->
         {:error, :mock_prepare_error}
       end)
 
       # This exercises the error -> error path (line 101)
-      assert {:error, :mock_prepare_error} = GenServer.call(pid, {:allocate, "test", 10})
+      assert {:error, :mock_prepare_error} =
+               GenServer.call(pid, {:allocate, "testapp", "test", 10})
     end
   end
 
-  describe "last_insert_id edge case" do
-    setup do
-      setup_registry(prefix: "sqlite_edge_test")
-    end
-
-    test "allocate returns error when last_insert_rowid returns no rows" do
-      # Use meck to mock step to return :done for last_insert_rowid query only
-      # This exercises the defensive error path that SQLite never actually hits
-      :meck.new(Exqlite.Sqlite3, [:passthrough, :unstick])
-
-      # Use process dictionary to track INSERT completion
-      Process.put(:insert_done, false)
-
-      :meck.expect(Exqlite.Sqlite3, :step, fn conn_ref, stmt ->
-        result = :meck.passthrough([conn_ref, stmt])
-
-        case result do
-          :done ->
-            # INSERT completed, next step call will be last_insert_rowid
-            Process.put(:insert_done, true)
-            :done
-
-          {:row, [_id]} ->
-            # Check if INSERT was done (meaning this is last_insert_rowid)
-            if Process.get(:insert_done, false) do
-              # Sabotage the last_insert_rowid query!
-              :done
-            else
-              result
-            end
-
-          other ->
-            other
-        end
-      end)
+  describe "config get/set" do
+    test "get_config returns nil for unknown key" do
+      db_path = temp_db_path("sqlite_config_get_unknown_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
 
       on_exit(fn ->
-        try do
-          :meck.unload(Exqlite.Sqlite3)
-        rescue
-          _ -> :ok
-        catch
-          _, _ -> :ok
-        end
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
       end)
 
-      # Trap exits so the GenServer crash doesn't kill the test
-      Process.flag(:trap_exit, true)
+      assert {:ok, nil} = GenServer.call(pid, {:get_config, "unknown_key"})
+    end
 
-      # The error happens in the GenServer, which crashes.
-      # Capture the log to avoid noisy output
-      {exit_reason, log} =
-        with_log(fn ->
-          catch_exit(Registry.allocate("meck-test-branch", 50))
-        end)
+    test "get_config returns default values after init_schema" do
+      db_path = temp_db_path("sqlite_config_defaults_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
 
-      # Verify we got the expected exit reason containing the :no_id error
-      # Exit reason format: {{{:badmatch, {:error, :no_id}}, stacktrace}, {GenServer, :call, args}}
-      assert {{{:badmatch, {:error, :no_id}}, _stacktrace}, {GenServer, :call, _args}} =
-               exit_reason
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
 
-      assert log =~ "GenServer Treehouse.Registry.Sqlite terminating"
+      assert {:ok, "10"} = GenServer.call(pid, {:get_config, "ip_range_start"})
+      assert {:ok, "99"} = GenServer.call(pid, {:get_config, "ip_range_end"})
+    end
+
+    test "set_config creates new value" do
+      db_path = temp_db_path("sqlite_config_set_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
+
+      assert :ok = GenServer.call(pid, {:set_config, "custom_key", "custom_value"})
+      assert {:ok, "custom_value"} = GenServer.call(pid, {:get_config, "custom_key"})
+    end
+
+    test "set_config updates existing value" do
+      db_path = temp_db_path("sqlite_config_update_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
+
+      # Default is 10
+      assert {:ok, "10"} = GenServer.call(pid, {:get_config, "ip_range_start"})
+
+      # Update it
+      assert :ok = GenServer.call(pid, {:set_config, "ip_range_start", "20"})
+      assert {:ok, "20"} = GenServer.call(pid, {:get_config, "ip_range_start"})
+    end
+
+    test "init_schema preserves existing config values" do
+      db_path = temp_db_path("sqlite_config_preserve_test")
+      {:ok, pid} = Sqlite.start_link(db_path: db_path, name: nil)
+      :ok = GenServer.call(pid, :init_schema)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
+        File.rm(db_path)
+      end)
+
+      # Modify the default
+      assert :ok = GenServer.call(pid, {:set_config, "ip_range_start", "50"})
+
+      # Call init_schema again (should not overwrite)
+      :ok = GenServer.call(pid, :init_schema)
+
+      # Value should be preserved
+      assert {:ok, "50"} = GenServer.call(pid, {:get_config, "ip_range_start"})
     end
   end
 end

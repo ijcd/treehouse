@@ -7,7 +7,11 @@
       "Skill(superpowers:requesting-code-review)",
       "WebFetch(domain:repo.hex.pm)",
       "WebFetch(domain:elixirforum.com)",
-      "WebFetch(domain:hexdocs.pm)"
+      "WebFetch(domain:hexdocs.pm)",
+      "Bash(mix treehouse.list:*)",
+      "Bash(mix run:*)",
+      "Bash(mix test:*)",
+      "Bash(mix format:*)"
     ]
   },
   "sandbox": {

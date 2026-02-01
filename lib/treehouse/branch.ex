@@ -64,13 +64,17 @@ defmodule Treehouse.Branch do
   end
 
   @doc """
-  Creates a hostname from a branch name.
+  Creates a hostname from a project and branch name.
+
+  Format: `branch.project.domain` (e.g., `main.treehouse.local`)
 
   ## Options
     - `:domain` - domain suffix (default: from config or "local")
   """
-  @spec hostname(String.t(), keyword()) :: String.t()
-  def hostname(branch, opts \\ []) do
-    "#{branch}.#{Treehouse.Config.domain(opts)}"
+  @spec hostname(String.t(), String.t(), keyword()) :: String.t()
+  def hostname(project, branch, opts \\ []) do
+    sanitized_branch = sanitize(branch)
+    sanitized_project = Treehouse.Project.sanitize(project)
+    "#{sanitized_branch}.#{sanitized_project}.#{Treehouse.Config.domain(opts)}"
   end
 end

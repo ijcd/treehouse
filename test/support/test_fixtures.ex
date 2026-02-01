@@ -4,6 +4,7 @@ defmodule Treehouse.TestFixtures do
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
+  import ExUnit.CaptureLog
   require ExUnit.Assertions
 
   @doc """
@@ -30,7 +31,19 @@ defmodule Treehouse.TestFixtures do
       |> Keyword.put_new(:name, nil)
       |> Keyword.put(:db_path, db_path)
 
-    {:ok, allocator_pid} = Treehouse.Allocator.start_link(allocator_opts)
+    # Suppress "no loopback aliases" warning during test startup
+    ref = make_ref()
+
+    _log =
+      capture_log(fn ->
+        {:ok, pid} = Treehouse.Allocator.start_link(allocator_opts)
+        send(self(), {ref, pid})
+      end)
+
+    allocator_pid =
+      receive do
+        {^ref, pid} -> pid
+      end
 
     on_exit(fn ->
       if Process.alive?(allocator_pid), do: GenServer.stop(allocator_pid)
@@ -84,6 +97,7 @@ defmodule Treehouse.TestFixtures do
   def cleanup_adapter_env do
     Application.delete_env(:treehouse, :registry_adapter)
     Application.delete_env(:treehouse, :branch_adapter)
+    Application.delete_env(:treehouse, :loopback_adapter)
     Application.delete_env(:treehouse, :mdns_adapter)
     Application.delete_env(:treehouse, :system_adapter)
   end

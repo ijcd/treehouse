@@ -8,6 +8,7 @@ defmodule Treehouse.Registry do
 
   @type allocation :: %{
           id: integer(),
+          project: String.t(),
           branch: String.t(),
           sanitized_name: String.t(),
           ip_suffix: integer(),
@@ -21,12 +22,12 @@ defmodule Treehouse.Registry do
   @doc "Initializes the schema if not present"
   @callback init_schema() :: :ok | {:error, term()}
 
-  @doc "Allocates an IP suffix for a branch"
-  @callback allocate(branch :: String.t(), ip_suffix :: integer()) ::
+  @doc "Allocates an IP suffix for a project/branch"
+  @callback allocate(project :: String.t(), branch :: String.t(), ip_suffix :: integer()) ::
               {:ok, allocation()} | {:error, term()}
 
-  @doc "Finds allocation by branch name"
-  @callback find_by_branch(branch :: String.t()) ::
+  @doc "Finds allocation by project and branch name"
+  @callback find_by_branch(project :: String.t(), branch :: String.t()) ::
               {:ok, allocation() | nil} | {:error, term()}
 
   @doc "Finds allocation by IP suffix"
@@ -49,6 +50,12 @@ defmodule Treehouse.Registry do
   @doc "Returns list of IP suffixes currently in use"
   @callback used_ips() :: {:ok, [integer()]} | {:error, term()}
 
+  @doc "Gets a config value by key"
+  @callback get_config(key :: String.t()) :: {:ok, String.t() | nil} | {:error, term()}
+
+  @doc "Sets a config value"
+  @callback set_config(key :: String.t(), value :: String.t()) :: :ok | {:error, term()}
+
   @doc """
   Returns the configured adapter module.
   """
@@ -61,11 +68,11 @@ defmodule Treehouse.Registry do
   @doc "Initializes the schema if not present."
   def init_schema, do: adapter().init_schema()
 
-  @doc "Allocates an IP suffix for a branch. Returns existing allocation if branch already has one."
-  def allocate(branch, ip_suffix), do: adapter().allocate(branch, ip_suffix)
+  @doc "Allocates an IP suffix for a project/branch. Returns existing allocation if already has one."
+  def allocate(project, branch, ip_suffix), do: adapter().allocate(project, branch, ip_suffix)
 
-  @doc "Finds allocation by branch name."
-  def find_by_branch(branch), do: adapter().find_by_branch(branch)
+  @doc "Finds allocation by project and branch name."
+  def find_by_branch(project, branch), do: adapter().find_by_branch(project, branch)
 
   @doc "Finds allocation by IP suffix."
   def find_by_ip(ip_suffix), do: adapter().find_by_ip(ip_suffix)
@@ -84,4 +91,10 @@ defmodule Treehouse.Registry do
 
   @doc "Returns list of IP suffixes currently in use."
   def used_ips, do: adapter().used_ips()
+
+  @doc "Gets a config value by key."
+  def get_config(key), do: adapter().get_config(key)
+
+  @doc "Sets a config value."
+  def set_config(key, value), do: adapter().set_config(key, value)
 end

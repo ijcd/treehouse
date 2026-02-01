@@ -15,7 +15,16 @@ defmodule Treehouse.MixProject do
       description: "Local development IP manager - a home for your worktrees",
       package: package(),
       docs: docs(),
-      test_coverage: [summary: [threshold: 90]]
+      test_coverage: [
+        summary: [threshold: 100],
+        ignore_modules: [
+          Treehouse.MockBranch,
+          Treehouse.MockLoopback,
+          Treehouse.MockMdns,
+          Treehouse.MockRegistry,
+          Treehouse.MockSystem
+        ]
+      ]
     ]
   end
 

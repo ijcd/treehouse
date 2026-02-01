@@ -19,6 +19,9 @@
 .elixir_ls/
 .vscode/
 
+# Erlang
+erl_crash.dump
+
 # OS
 .DS_Store
 
