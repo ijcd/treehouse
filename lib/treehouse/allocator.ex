@@ -195,11 +195,11 @@ defmodule Treehouse.Allocator do
         Logger.warning("[treehouse] No loopback aliases found! Run: mix treehouse.doctor")
 
       count < 10 ->
-        ips_str = available_ips |> Enum.map(&"127.0.0.#{&1}") |> Enum.join(", ")
+        ips_str = Enum.map_join(available_ips, ", ", &"127.0.0.#{&1}")
         Logger.info("[treehouse] Available IPs (#{count}): #{ips_str}")
 
       true ->
-        first_3 = available_ips |> Enum.take(3) |> Enum.map(&"127.0.0.#{&1}") |> Enum.join(", ")
+        first_3 = available_ips |> Enum.take(3) |> Enum.map_join(", ", &"127.0.0.#{&1}")
         last = List.last(available_ips)
         Logger.info("[treehouse] Available IPs: #{first_3} ... 127.0.0.#{last} (#{count} total)")
     end

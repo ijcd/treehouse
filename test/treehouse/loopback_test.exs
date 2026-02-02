@@ -51,7 +51,7 @@ defmodule Treehouse.LoopbackTest do
     test "returns boolean for IP suffix" do
       available = Loopback.available_ips()
 
-      if length(available) > 0 do
+      if available != [] do
         first_available = List.first(available)
         assert Loopback.available?(first_available) == true
       end

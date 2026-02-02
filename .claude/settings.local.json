@@ -11,7 +11,10 @@
       "Bash(mix treehouse.list:*)",
       "Bash(mix run:*)",
       "Bash(mix test:*)",
-      "Bash(mix format:*)"
+      "Bash(mix format:*)",
+      "Bash(mix credo:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   },
   "sandbox": {

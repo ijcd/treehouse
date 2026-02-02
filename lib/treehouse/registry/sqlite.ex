@@ -179,10 +179,9 @@ defmodule Treehouse.Registry.Sqlite do
          # Migrate old schema if needed (adds project column)
          :ok <- migrate_add_project_column(conn),
          # Now create indexes (after migration ensures column exists)
-         :ok <- create_indexes(conn),
-         # Create config table and set defaults
-         :ok <- create_config_table(conn) do
-      :ok
+         :ok <- create_indexes(conn) do
+      # Create config table and set defaults
+      create_config_table(conn)
     end
   end
 
@@ -197,13 +196,10 @@ defmodule Treehouse.Registry.Sqlite do
       {:error, _} ->
         # Column doesn't exist, add it with default value
         # Use "unknown" as default so existing rows get a project
-        with :ok <-
-               Exqlite.Sqlite3.execute(
-                 conn,
-                 "ALTER TABLE allocations ADD COLUMN project TEXT DEFAULT 'unknown' NOT NULL"
-               ) do
-          :ok
-        end
+        Exqlite.Sqlite3.execute(
+          conn,
+          "ALTER TABLE allocations ADD COLUMN project TEXT DEFAULT 'unknown' NOT NULL"
+        )
     end
   end
 
@@ -371,9 +367,8 @@ defmodule Treehouse.Registry.Sqlite do
     );
     """
 
-    with :ok <- Exqlite.Sqlite3.execute(conn, create_sql),
-         :ok <- set_config_defaults(conn) do
-      :ok
+    with :ok <- Exqlite.Sqlite3.execute(conn, create_sql) do
+      set_config_defaults(conn)
     end
   end
 
@@ -386,9 +381,8 @@ defmodule Treehouse.Registry.Sqlite do
          :done <- Exqlite.Sqlite3.step(conn, stmt),
          :ok <- Exqlite.Sqlite3.reset(stmt),
          :ok <- Exqlite.Sqlite3.bind(stmt, ["ip_range_end", "99"]),
-         :done <- Exqlite.Sqlite3.step(conn, stmt),
-         :ok <- Exqlite.Sqlite3.release(conn, stmt) do
-      :ok
+         :done <- Exqlite.Sqlite3.step(conn, stmt) do
+      Exqlite.Sqlite3.release(conn, stmt)
     end
   end
 

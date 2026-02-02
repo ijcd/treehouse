@@ -73,7 +73,7 @@ defmodule Mix.Tasks.Treehouse.Doctor do
       IO.puts("Status: OK (#{count} IPs available)")
 
       if count <= 10 do
-        ips_str = available |> Enum.map(&"127.0.0.#{&1}") |> Enum.join(", ")
+        ips_str = Enum.map_join(available, ", ", &"127.0.0.#{&1}")
         IO.puts("IPs: #{ips_str}")
       else
         first = List.first(available)
