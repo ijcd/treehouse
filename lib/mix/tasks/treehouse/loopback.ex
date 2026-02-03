@@ -83,7 +83,7 @@ defmodule Mix.Tasks.Treehouse.Loopback do
         IO.puts("  echo 'nat-anchor \"loopback_treehouse\"' | sudo tee -a /etc/pf.conf")
 
         IO.puts(
-          "  echo 'load anchor \"loopback_treehouse\" from \"/etc/pf.anchors/loopback_treehouse\"' | sudo tee -a /etc/pf.conf"
+          ~s(  echo 'load anchor "loopback_treehouse" from "/etc/pf.anchors/loopback_treehouse"' | sudo tee -a /etc/pf.conf)
         )
 
         IO.puts("}")
