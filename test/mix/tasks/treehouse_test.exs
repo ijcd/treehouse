@@ -586,6 +586,27 @@ defmodule Mix.Tasks.TreehouseTest do
       end
     end
 
+    test "pf mode inserts nat-anchor after existing nat-anchors, not at end of pf.conf" do
+      output =
+        capture_io(fn ->
+          Mix.Tasks.Treehouse.Loopback.run(["--pf", "--start", "10", "--end", "12"])
+        end)
+
+      case :os.type() do
+        {:unix, :darwin} ->
+          # Must NOT append to end of pf.conf (breaks PF rule ordering)
+          refute output =~ "tee -a /etc/pf.conf",
+                 "Must not append to pf.conf — nat-anchor must be inserted before rdr/filter anchors"
+
+          # Must find nat-anchor position to insert correctly
+          assert output =~ "grep -n '^nat-anchor'",
+                 "Should find nat-anchor line position for correct insertion"
+
+        _ ->
+          :ok
+      end
+    end
+
     test "pf mode outputs Linux message" do
       original = :os.type()
 

@@ -78,15 +78,23 @@ defmodule Mix.Tasks.Treehouse.Loopback do
         IO.puts("EOF")
         IO.puts("")
         IO.puts("# Add anchor to pf.conf if not present")
+        IO.puts("# Inserts after last nat-anchor line to preserve PF rule ordering")
         IO.puts("grep -q 'loopback_treehouse' /etc/pf.conf || {")
         IO.puts("  sudo cp /etc/pf.conf /etc/pf.conf.backup")
-        IO.puts("  echo 'nat-anchor \"loopback_treehouse\"' | sudo tee -a /etc/pf.conf")
+        IO.puts("  last_nat=$(grep -n '^nat-anchor' /etc/pf.conf | tail -1 | cut -d: -f1)")
+        IO.puts(~S[  {])
+
+        IO.puts(~S[    head -n "$last_nat" /etc/pf.conf])
+
+        IO.puts(~s[    echo 'nat-anchor "loopback_treehouse"'])
 
         IO.puts(
-          ~s(  echo 'load anchor "loopback_treehouse" from "/etc/pf.anchors/loopback_treehouse"' | sudo tee -a /etc/pf.conf)
+          ~s[    echo 'load anchor "loopback_treehouse" from "/etc/pf.anchors/loopback_treehouse"']
         )
 
-        IO.puts("}")
+        IO.puts(~S[    tail -n +"$((last_nat + 1))" /etc/pf.conf])
+        IO.puts(~S[  } | sudo tee /etc/pf.conf > /dev/null])
+        IO.puts(~S[}])
         IO.puts("")
         IO.puts("sudo cp /tmp/loopback_nat.conf /etc/pf.anchors/loopback_treehouse")
         IO.puts("sudo pfctl -f /etc/pf.conf")
